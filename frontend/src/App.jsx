@@ -126,7 +126,7 @@ function App() {
             textAlign: 'center'
           }}>
             {/* Glowing Shield logo image */}
-            <img src="/logo.png" alt="MarketSentinel Logo" className="pulse" style={{
+            <img src="logo.png" alt="MarketSentinel Logo" className="pulse" style={{
               width: '100px',
               height: '100px',
               borderRadius: '24px',

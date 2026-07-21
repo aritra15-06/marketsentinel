@@ -62,7 +62,7 @@ export default function DateSelector({
     <div className={`sidebar ${sidebarOpen ? 'open' : ''}`}>
       <div className="sidebar-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
         <div className="logo-container" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <img src="/logo.png" alt="Logo" style={{ width: '28px', height: '28px', borderRadius: '6px', border: '1px solid var(--primary-color)', boxShadow: '0 0 8px var(--primary-glow)' }} />
+          <img src="logo.png" alt="Logo" style={{ width: '28px', height: '28px', borderRadius: '6px', border: '1px solid var(--primary-color)', boxShadow: '0 0 8px var(--primary-glow)' }} />
           <span className="logo-text">MarketSentinel</span>
         </div>
         <button 
