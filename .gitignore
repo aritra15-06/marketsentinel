@@ -1,0 +1,28 @@
+# Python
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+backend/market_data.db
+backend/.system_generated/
+*.log
+
+# Node
+node_modules/
+dist/
+.rolldown-cache/
+.vite/
+
+# System / IDE
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Gemini system generated logs
+.gemini/
+brain/
+scratch/
+test_*.py
+compare_*.py
