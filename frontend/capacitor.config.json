@@ -3,7 +3,7 @@
   "appName": "MarketSentinel",
   "webDir": "dist",
   "server": {
-    "url": "http://192.168.1.15:5173",
+    "url": "https://aritra15-06.github.io/marketsentinel/",
     "cleartext": true
   }
 }

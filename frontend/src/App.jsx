@@ -7,6 +7,8 @@ import StockDetails from './components/StockDetails';
 import AnalystScanners from './components/AnalystScanners';
 import SectorBreadth from './components/SectorBreadth';
 import { getApiBase, setApiBase } from './utils';
+import { getAvailableDates, saveDailyStocks, saveDateRecord, getStockDetails, saveStockDetails } from './db';
+import { scrapeDate, bootstrapSectors } from './scraper';
 import './App.css';
 
 function App() {
@@ -17,10 +19,8 @@ function App() {
   const [datesLoading, setDatesLoading] = useState(false);
   const [activeMainTab, setActiveMainTab] = useState('board'); // 'board', 'scanners', 'breadth'
   
-  // Mobile drawer and settings states
+  // Mobile drawer state
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [showSettings, setShowSettings] = useState(false);
-  const [tempApiUrl, setTempApiUrl] = useState(getApiBase());
 
   // Splash screen state (displays MarketSentinel with bottom "AD" brand)
   const [showSplash, setShowSplash] = useState(true);
@@ -36,20 +36,17 @@ function App() {
   const fetchAvailableDates = async (selectLatest = false) => {
     setDatesLoading(true);
     try {
-      const res = await fetch(`${getApiBase()}/api/available-dates`);
-      if (res.ok) {
-        const json = await res.json();
-        setAvailableDates(json || []);
-        
-        // Auto-select latest fetched date if none is selected
-        if (json && json.length > 0) {
-          if (selectLatest || !selectedDate) {
-            setSelectedDate(json[0].date);
-          }
+      const dates = await getAvailableDates();
+      setAvailableDates(dates || []);
+      
+      // Auto-select latest fetched date if none is selected
+      if (dates && dates.length > 0) {
+        if (selectLatest || !selectedDate) {
+          setSelectedDate(dates[0].date);
         }
       }
     } catch (e) {
-      console.error("Error fetching dates:", e);
+      console.error("Error fetching dates locally:", e);
     } finally {
       setDatesLoading(false);
     }
@@ -62,19 +59,26 @@ function App() {
   const handleFetchDate = async (dateStr) => {
     setFetching(true);
     try {
-      const res = await fetch(`${getApiBase()}/api/fetch-date?date=${dateStr}`, {
-        method: 'POST'
-      });
-      const json = await res.json();
-      if (!res.ok) {
-        throw new Error(json.detail || "Scraper engine returned an error.");
-      }
-      // Reload dates list and force select the newly fetched date
+      // 1. Run local CSV scraper
+      const mergedList = await scrapeDate(dateStr);
+      
+      // 2. Save data in phone's IndexedDB
+      await saveDailyStocks(dateStr, mergedList);
+      await saveDateRecord(dateStr);
+      
+      // 3. Force select the newly fetched date
       setSelectedDate(dateStr);
       setSelectedStock(null);
+
+      // 4. Refresh dates list
       await fetchAvailableDates(true);
-    } catch (e) {
-      throw e;
+      
+      // 5. Background bootstrap top stock sectors
+      bootstrapSectors(getStockDetails, saveStockDetails);
+      
+    } catch (err) {
+      console.error("Scrape error:", err);
+      throw err;
     } finally {
       setFetching(false);
     }
@@ -161,57 +165,6 @@ function App() {
         </div>
       )}
 
-      {/* Settings Modal */}
-      {showSettings && (
-        <div style={{
-          position: 'fixed',
-          inset: 0,
-          background: 'rgba(0,0,0,0.6)',
-          backdropFilter: 'blur(5px)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 2000
-        }}>
-          <div className="glass-card" style={{ width: '90%', maxWidth: '400px', padding: '24px', position: 'relative' }}>
-            <button 
-              style={{ position: 'absolute', top: '16px', right: '16px', background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer' }}
-              onClick={() => setShowSettings(false)}
-            >
-              <X size={18} />
-            </button>
-            <h3 style={{ marginTop: 0, marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <Settings size={18} style={{ color: 'var(--primary-color)' }} />
-              API Connection Settings
-            </h3>
-            <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '16px', lineHeight: '1.4' }}>
-              Enter the IP address of your desktop backend server (e.g. <code>http://192.168.1.50:8000</code>) to connect from your Android device.
-            </p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '20px' }}>
-              <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)' }}>FastAPI Endpoint URL</label>
-              <input 
-                type="text" 
-                value={tempApiUrl} 
-                onChange={(e) => setTempApiUrl(e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '10px',
-                  background: 'rgba(255,255,255,0.03)',
-                  border: '1px solid var(--border-color)',
-                  borderRadius: '6px',
-                  color: '#fff',
-                  fontSize: '14px'
-                }}
-              />
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
-              <button className="btn-secondary" onClick={() => setShowSettings(false)}>Cancel</button>
-              <button className="btn-primary" onClick={handleSaveSettings}>Save & Reload</button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Sidebar - Date selector and memory records */}
       <DateSelector
         availableDates={availableDates}
@@ -283,18 +236,10 @@ function App() {
           )}
 
           <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '14px', color: 'var(--text-secondary)' }} className="api-online-status">
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '14px', color: 'var(--text-secondary)' }}>
               <Activity size={16} style={{ color: 'var(--primary-color)' }} />
-              <span>Scraper API Online</span>
+              <span>Standalone App Mode</span>
             </div>
-            <button 
-              className="btn-icon"
-              onClick={() => setShowSettings(true)}
-              style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', padding: '6px', borderRadius: '50%' }}
-              title="API Connection Settings"
-            >
-              <Settings size={18} />
-            </button>
           </div>
         </header>
 

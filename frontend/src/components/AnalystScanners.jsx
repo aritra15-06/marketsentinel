@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { ShieldAlert, TrendingUp, BarChart3, Database, Loader2, ArrowUpRight, ArrowDownRight, Volume2 } from 'lucide-react';
-import { getApiBase } from '../utils';
+import { getDailyStocksRaw, getStockDetails } from '../db';
 
 export default function AnalystScanners({ date, onSelectStock }) {
   const [subTab, setSubTab] = useState('accumulation'); // 'accumulation' or 'surveillance'
@@ -18,13 +18,34 @@ export default function AnalystScanners({ date, onSelectStock }) {
       const fetchAccumulation = async () => {
         setAccumLoading(true);
         try {
-          const res = await fetch(`${getApiBase()}/api/scanners/accumulation?date=${date}`);
-          if (res.ok) {
-            const json = await res.json();
-            setAccumStocks(json || []);
+          const raw = await getDailyStocksRaw(date);
+          
+          // Filter: volume > 50000 and deliverable_pct > 35
+          // Match company names and sectors from cached details if available
+          const processed = [];
+          for (const s of raw) {
+            if (s.volume > 50000 && s.deliverable_pct > 35) {
+              const cached = await getStockDetails(s.symbol);
+              processed.push({
+                symbol: s.symbol,
+                series: s.series,
+                prev_close: s.prev_close,
+                close: s.close,
+                volume: s.volume,
+                deliverable_qty: s.deliverable_qty,
+                deliverable_pct: s.deliverable_pct,
+                price_band: s.price_band,
+                company_name: cached ? cached.longName : "N/A",
+                sector: cached ? cached.sector : "Other"
+              });
+            }
           }
+
+          // Sort deliverable_pct DESC
+          processed.sort((a, b) => b.deliverable_pct - a.deliverable_pct);
+          setAccumStocks(processed.slice(0, 50));
         } catch (e) {
-          console.error("Error fetching accumulation:", e);
+          console.error("Error executing accumulation scan locally:", e);
         } finally {
           setAccumLoading(false);
         }
@@ -34,13 +55,87 @@ export default function AnalystScanners({ date, onSelectStock }) {
       const fetchSurveillance = async () => {
         setSurvLoading(true);
         try {
-          const res = await fetch(`${getApiBase()}/api/scanners/surveillance?date=${date}`);
-          if (res.ok) {
-            const json = await res.json();
-            setSurvData(json || { near_upper_circuit: [], near_lower_circuit: [], volume_breakouts: [] });
+          const raw = await getDailyStocksRaw(date);
+          
+          const upper = [];
+          const lower = [];
+          const breakouts = [];
+
+          for (const s of raw) {
+            const cached = await getStockDetails(s.symbol);
+            const companyName = cached ? cached.longName : "N/A";
+
+            // 1. Circuit limits check
+            if (s.price_band && s.price_band !== 'No Band' && s.price_band !== '') {
+              const band = parseFloat(s.price_band);
+              if (!isNaN(band)) {
+                const upperLimit = s.prev_close * (1 + band / 100);
+                const lowerLimit = s.prev_close * (1 - band / 100);
+                
+                if (s.close >= upperLimit * 0.985) {
+                  upper.push({
+                     symbol: s.symbol,
+                     series: s.series,
+                     prev_close: s.prev_close,
+                     close: s.close,
+                     volume: s.volume,
+                     price_band: s.price_band,
+                     company_name: companyName
+                  });
+                }
+                
+                if (s.close <= lowerLimit * 1.015) {
+                  lower.push({
+                     symbol: s.symbol,
+                     series: s.series,
+                     prev_close: s.prev_close,
+                     close: s.close,
+                     volume: s.volume,
+                     price_band: s.price_band,
+                     company_name: companyName
+                  });
+                }
+              }
+            }
+
+            // 2. Volume breakout check (utilizes averageVolume cached from YF)
+            if (cached && cached.averageVolume > 10000 && s.volume > cached.averageVolume * 2) {
+              const ratio = s.volume / cached.averageVolume;
+              breakouts.push({
+                symbol: s.symbol,
+                series: s.series,
+                prev_close: s.prev_close,
+                close: s.close,
+                volume: s.volume,
+                avg_volume: cached.averageVolume,
+                ratio: ratio,
+                company_name: companyName
+              });
+            }
           }
+
+          // Sort outputs
+          upper.sort((a, b) => {
+            const limitA = a.prev_close * (1 + parseFloat(a.price_band) / 100);
+            const limitB = b.prev_close * (1 + parseFloat(b.price_band) / 100);
+            return (b.close / limitB) - (a.close / limitA);
+          });
+          
+          lower.sort((a, b) => {
+            const limitA = a.prev_close * (1 - parseFloat(a.price_band) / 100);
+            const limitB = b.prev_close * (1 - parseFloat(b.price_band) / 100);
+            return (a.close / limitA) - (b.close / limitB);
+          });
+          
+          breakouts.sort((a, b) => b.ratio - a.ratio);
+
+          setSurvData({
+            near_upper_circuit: upper.slice(0, 30),
+            near_lower_circuit: lower.slice(0, 30),
+            volume_breakouts: breakouts.slice(0, 30)
+          });
         } catch (e) {
-          console.error("Error fetching surveillance:", e);
+          console.error("Error executing surveillance scan locally:", e);
         } finally {
           setSurvLoading(false);
         }

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Layers, Activity, Loader2, ArrowUpRight, ArrowDownRight, Users } from 'lucide-react';
-import { getApiBase } from '../utils';
+import { getDailyStocksRaw, getStockDetails } from '../db';
 
 export default function SectorBreadth({ date, onSelectStock }) {
   const [sectors, setSectors] = useState([]);
@@ -14,13 +14,50 @@ export default function SectorBreadth({ date, onSelectStock }) {
       setLoading(true);
       setActiveSector(null);
       try {
-        const res = await fetch(`${getApiBase()}/api/scanners/sectors?date=${date}`);
-        if (res.ok) {
-          const json = await res.json();
-          setSectors(json || []);
+        const raw = await getDailyStocksRaw(date);
+        const sectorMap = {};
+        
+        for (const s of raw) {
+          const cached = await getStockDetails(s.symbol);
+          if (cached && cached.sector && cached.sector !== 'Other' && cached.sector !== '') {
+            const sec = cached.sector;
+            if (!sectorMap[sec]) {
+              sectorMap[sec] = {
+                sector: sec,
+                total_stocks: 0,
+                total_return: 0,
+                advances: 0,
+                declines: 0,
+                total_volume: 0,
+                symbols: []
+              };
+            }
+            
+            const secObj = sectorMap[sec];
+            secObj.total_stocks += 1;
+            const ret = s.prev_close > 0 ? ((s.close - s.prev_close) / s.prev_close) * 100 : 0;
+            secObj.total_return += ret;
+            if (s.close > s.prev_close) secObj.advances += 1;
+            else if (s.close < s.prev_close) secObj.declines += 1;
+            secObj.total_volume += s.volume;
+            secObj.symbols.push(s.symbol);
+          }
         }
+
+        const sectorsList = Object.values(sectorMap).map(secData => ({
+          sector: secData.sector,
+          total_stocks: secData.total_stocks,
+          avg_return: secData.total_stocks > 0 ? (secData.total_return / secData.total_stocks) : 0,
+          advances: secData.advances,
+          declines: secData.declines,
+          total_volume: secData.total_volume,
+          symbols: secData.symbols
+        }));
+
+        sectorsList.sort((a, b) => b.avg_return - a.avg_return);
+        setSectors(sectorsList);
       } catch (e) {
-        console.error("Error fetching sector performance:", e);
+        console.error("Error calculating sector breadth locally:", e);
       } finally {
         setLoading(false);
       }
@@ -41,20 +78,13 @@ export default function SectorBreadth({ date, onSelectStock }) {
     const fetchSectorStocks = async () => {
       setStocksLoading(true);
       try {
-        // Query main daily stocks API, but filtering for active sector symbols
-        // We'll query them one by one or fetch the whole date and filter on client
-        // Fetching the whole list for date and filtering by symbols is easiest
-        const res = await fetch(`${getApiBase()}/api/stocks-for-date?date=${date}&limit=100`);
-        if (res.ok) {
-          const json = await res.json();
-          // Filter matching symbols
-          const filtered = (json.data || []).filter(item => 
-            selectedSectorObj.symbols.includes(item.symbol)
-          );
-          setSectorStocksData(filtered);
-        }
+        const raw = await getDailyStocksRaw(date);
+        const filtered = raw.filter(item => 
+          selectedSectorObj.symbols.includes(item.symbol)
+        );
+        setSectorStocksData(filtered);
       } catch (e) {
-        console.error("Error fetching sector stock details:", e);
+        console.error("Error loading sector constituents locally:", e);
       } finally {
         setStocksLoading(false);
       }

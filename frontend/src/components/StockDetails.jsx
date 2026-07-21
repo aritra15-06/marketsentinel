@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Building2, TrendingUp, DollarSign, Gift, HeartHandshake, Loader2, Globe, Users, Briefcase } from 'lucide-react';
-import { getApiBase } from '../utils';
+import { getStockDetails, saveStockDetails } from '../db';
+import { fetchStockDetailsYF } from '../yf';
 
 export default function StockDetails({ symbol }) {
   const [details, setDetails] = useState(null);
@@ -11,13 +12,16 @@ export default function StockDetails({ symbol }) {
     const fetchDetails = async () => {
       setLoading(true);
       try {
-        const res = await fetch(`${getApiBase()}/api/stock-details/${symbol}`);
-        if (res.ok) {
-          const json = await res.json();
-          setDetails(json);
+        // Try loading from local IndexedDB cache
+        let data = await getStockDetails(symbol);
+        if (!data) {
+          // Fetch directly from Yahoo Finance API
+          data = await fetchStockDetailsYF(symbol);
+          await saveStockDetails(symbol, data);
         }
+        setDetails(data);
       } catch (err) {
-        console.error("Error fetching stock details:", err);
+        console.error("Error loading stock details locally/YF:", err);
       } finally {
         setLoading(false);
       }

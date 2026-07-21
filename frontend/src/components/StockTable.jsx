@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Search, ChevronLeft, ChevronRight, ArrowUpDown, Loader2 } from 'lucide-react';
-import { getApiBase } from '../utils';
+import { getDailyStocks } from '../db';
 
 export default function StockTable({ date, onSelectStock }) {
   const [stocks, setStocks] = useState([]);
@@ -21,14 +21,11 @@ export default function StockTable({ date, onSelectStock }) {
     const fetchStocks = async () => {
       setLoading(true);
       try {
-        const res = await fetch(
-          `${getApiBase()}/api/stocks-for-date?date=${date}&search=${search}&page=${page}&limit=${limit}&sort_by=${sortBy}&sort_order=${sortOrder}`
-        );
-        const json = await res.json();
+        const json = await getDailyStocks(date, search, page, limit, sortBy, sortOrder);
         setStocks(json.data || []);
         setTotal(json.total || 0);
       } catch (err) {
-        console.error("Error fetching stocks for date:", err);
+        console.error("Error fetching stocks locally:", err);
       } finally {
         setLoading(false);
       }

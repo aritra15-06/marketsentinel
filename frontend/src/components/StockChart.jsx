@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Line } from 'recharts';
 import { Loader2, TrendingUp, TrendingDown, Clock, Activity } from 'lucide-react';
-import { getApiBase } from '../utils';
+import { getIntraday, saveIntraday } from '../db';
+import { fetchStockIntradayYF } from '../yf';
 
 export default function StockChart({ symbol, date }) {
   const [intervals, setIntervals] = useState([]);
@@ -13,13 +14,16 @@ export default function StockChart({ symbol, date }) {
     const fetchIntraday = async () => {
       setLoading(true);
       try {
-        const res = await fetch(`${getApiBase()}/api/stock-intraday/${symbol}?date=${date}`);
-        if (res.ok) {
-          const json = await res.json();
-          setIntervals(json || []);
+        // Try loading from local IndexedDB cache
+        let data = await getIntraday(symbol, date);
+        if (!data) {
+          // Fetch directly from Yahoo Finance API
+          data = await fetchStockIntradayYF(symbol, date);
+          await saveIntraday(symbol, date, data);
         }
+        setIntervals(data || []);
       } catch (err) {
-        console.error("Error fetching intraday intervals:", err);
+        console.error("Error loading intraday intervals locally/YF:", err);
       } finally {
         setLoading(false);
       }
